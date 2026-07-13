@@ -1,13 +1,65 @@
-﻿name: Basic Workflow
+﻿name: CI/CD Pipeline
 
 on:
-  push:
-    branches:
-      - main
+  pull_request:
+    branches: [develop]
+
+permissions:
+  contents: write
 
 jobs:
-  hello-job:
+  test-and-coverage:
     runs-on: ubuntu-latest
     steps:
-      - name: Print Hello Message
-        run: echo "Hello, GitHub Actions!"
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run tests with pytest
+        run: python -m pytest --cov=myapp --cov-fail-under=70 --cov-report=xml
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: coverage.xml
+
+  build:
+    needs: test-and-coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+
+      - name: Add Badge to README
+        run: |
+          BADGE="[![CI/CD Pipeline](https://github.com/${{ github.repository }}/actions/workflows/main.yml/badge.svg)](https://github.com/${{ github.repository }}/actions/workflows/main.yml)"
+          if [ ! -f README.md ]; then
+            echo "$BADGE" > README.md
+            echo -e "\n# My Application" >> README.md
+          elif ! grep -q "badge.svg" README.md; then
+            echo -e "$BADGE\n$(cat README.md)" > README.md
+          else
+            echo "Badge already exists. Skipping."
+          fi
+
+      - name: Commit and Push changes
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add README.md
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "docs: auto-add build badge to README"
+            git push
+          fi
